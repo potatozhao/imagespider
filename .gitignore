@@ -1,5 +1,4 @@
-log/*.log 
+﻿log/*.log 
 pics/**/*
 .idea/**/*
 *.pyc
-tmp/**/*

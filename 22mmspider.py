@@ -9,7 +9,6 @@ import redis
 import threading
 import os
 import time
-import traceback
 import logging
 
 import revise_wgetter
@@ -28,15 +27,16 @@ class Base(object):
         self.image_max_num = image_max_num
         self.thread_num = thread_num
         self.file_path = file_path
-        self.client =  redis.StrictRedis(host='localhost', port=6379)
+        self.client = redis.StrictRedis(host='localhost', port=6379)
 
         self.img_url_pattern = []
         self.url_pattern = []
         logging.basicConfig(filename=os.path.join(os.getcwd(), 'log.txt'),
-                                          level=logging.DEBUG, filemode='w',
+                                          level=logging.WARNING, filemode='w',
                                           format='%(asctime)s - %(levelname)s: %(message)s')
 
     def startspider(self):
+        u"""爬虫开始函数"""
         self.redis_prepare()
         self.check_file_path()
         self.thread_control()
@@ -57,15 +57,9 @@ class Base(object):
               根据thread_num开启对应线程以进行解析、爬取、下载
         """
         for i in xrange(self.thread_num):
-            #try:
-                #thread.start_new(self._extract_url, ())
-                #thread.start_new(self.download, ())
-                #self._extract_url()
-                #self.download()
-            #except:
-                #print u"Error: unable to start thread"
             threading.Thread(target=self._extract_url, args=(), name='url_tread').start()
             threading.Thread(target=self.download, args=(), name='download_thread').start()
+
 
     def check_file_path(self):
         u"""判断存储目录是否存在，如果不存在则创建目录."""
@@ -95,7 +89,6 @@ class Base(object):
                 except:
                     logging.warning("url cant open: %s" % url)
                     continue
-                #html = unicode(html, 'gb2312', 'ignore').encode('utf-8', 'ignore')
                 domain = urlparse2.urlparse(url).netloc
                 web_url_list = self._extract_web_url(html, url, domain)
                 image_url_list = self._extract_img_url(html, domain)
@@ -172,32 +165,38 @@ class Base(object):
                 if int(self.client.get('image_max_num')) is -1:
                     image_url = self.client.rpop('image_url_goto')
                     self.client.incr('image_downloaded_num')
-                    image_url = urllib2.quote(image_url)
-                    revise_wgetter.download(image_url, int(self.client.get('image_downloaded_num')) , self.file_path)
+                    try:
+                        revise_wgetter.download(image_url, int(self.client.get('image_downloaded_num')), self.file_path)
+                    except:
+                        self.client.incr('image_max_num')
+                        logging.warning('download error:%s' % image_url)
+
+
                 else:
                     self.client.decr('image_max_num')
                     image_url = self.client.rpop('image_url_goto')
+                    self.client.incr('image_downloaded_num')
                     try:
-                        self.client.incr('image_downloaded_num')
                         revise_wgetter.download(image_url, int(self.client.get('image_downloaded_num')), self.file_path)
-                    except Exception, e:
+                    except:
                         self.client.incr('image_max_num')
-                        print image_url
-                        print e
-                        print traceback.format_exc()
-                        logging.warning('download error:%s'%(image_url))
+                        logging.warning('download error:%s' % image_url)
 
 if __name__ == "__main__":
     parser = OptionParser()
-    parser.add_option("-o", "--thread", dest="thread_num", default='10')
+    parser.add_option("-o", "--thread", dest="thread_num", default='10', type='int', help="thread_num")
     parser.add_option("-f", "--file_path", dest="file_path", help="write report to FILE", metavar="./pics",
                       default='./pics')
     parser.add_option("-i", "--image_max_num", dest="image_max_num", help="image max download num", default=-1,
                       type="int")
     options, args = parser.parse_args()
-    print args
-    print options.thread_num
-    print options.file_path
-    print options.image_max_num
-    #spider = Base('http://www.22mm.cc', 500 , 10 , './pics')
-    #spider.startspider()
+    if len(args) > 0:
+        url = args[0]
+        thread_num = options.thread_num
+        file_path = options.file_path
+        image_max_num = options.image_max_num
+        spider = Base(url, image_max_num, thread_num, file_path)
+        spider.startspider()
+        print "爬取结束"
+    else:
+        print "error:please put in the right url"
